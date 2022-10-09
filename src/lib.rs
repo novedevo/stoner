@@ -124,11 +124,41 @@ impl Plugin for Stoner {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext,
     ) -> ProcessStatus {
-        let every = self.params.every.default_plain_value() as u8;
+        let every = self.params.every.value() as u8;
+        let bs = self.params.buffer_size.value() as usize;
         for channel in 0..buffer.channels() {
             //the first element of a channel is the oldest sample
-            let dividend = self.old_buffers.len();
-            self.old_buffers[channel].extend_from_slice(buffer.as_slice_immutable()[channel])
+            let max_old_size = self.params.skip.value() as usize * bs;
+            let ob = &mut self.old_buffers[channel];
+            let dividend = ob.len();
+            let offset = if dividend < max_old_size {
+                max_old_size as isize - dividend as isize
+            } else {
+                (dividend % max_old_size) as isize
+            };
+
+            let ch = &mut buffer.as_slice()[channel];
+
+            self.old_buffers[channel].extend_from_slice(ch);
+
+            match offset {
+                p if p > 0 => todo!(),
+                n if n < 0 => match ch.len() as isize {
+                    o if -o < n => todo!(),
+                    u if -u > n => todo!(),
+                    e => todo!(),
+                },
+                z => todo!(),
+            }
+
+            //copy samples from the old buffers into the current buffer if it's time to do that (here)
+            //then trim that many samples from the front of the old buffer
+
+            // remove whole numbers of buflens from the start of the old buffers
+            let need_removing = self.old_buffers[channel].len().saturating_sub(max_old_size) / bs;
+            if need_removing > 0 {
+                self.old_buffers[channel] = self.old_buffers[channel][need_removing..].to_vec()
+            }
         }
 
         self.modulo = (self.modulo + 1) % every;
