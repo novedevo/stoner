@@ -8,8 +8,9 @@ use std::sync::Arc;
 struct Stoner {
     params: Arc<StonerParams>,
     old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
-    modulo: u8,
-    passthru: bool,
+    //old buffers always start at the beginning of a buflen
+    modulo: u8, //how many full buflens it's been since we played a sample from the old buffers
+    passthru: bool, //value of true indicates that the most recent sample played came directly from the input buffer
 }
 
 #[derive(Params)]
@@ -22,8 +23,8 @@ struct StonerParams {
     pub skip: IntParam,
     #[id = "every"]
     pub every: IntParam,
-    #[id = "buffer size"]
-    pub buffer_size: IntParam,
+    #[id = "buflen"]
+    pub buflen: IntParam,
 }
 
 impl Default for Stoner {
@@ -51,7 +52,7 @@ impl Default for StonerParams {
                 2,
                 IntRange::Linear { min: 2, max: 10 },
             ),
-            buffer_size: IntParam::new(
+            buflen: IntParam::new(
                 "Buffer size",
                 12025,
                 IntRange::Linear {
@@ -99,8 +100,7 @@ impl Plugin for Stoner {
         _context: &mut impl InitContext,
     ) -> bool {
         // Resize buffers and perform other potentially expensive initialization operations here.
-        // The `reset()` function is always called right after this function. You can remove this
-        // function if you do not need it.
+        // The `reset()` function is always called right after this function.
         for _ in 0..bus_config.num_input_channels {
             self.old_buffers
                 .push(Vec::with_capacity(buffer_config.max_buffer_size as usize))
@@ -109,13 +109,12 @@ impl Plugin for Stoner {
     }
 
     fn reset(&mut self) {
+        // Reset buffers and envelopes here. This can be called from the audio thread and may not allocate.
         for buf in self.old_buffers.iter_mut() {
             buf.clear()
         }
         self.modulo = 0;
         self.passthru = true;
-        // Reset buffers and envelopes here. This can be called from the audio thread and may not
-        // allocate. You can remove this function if you do not need it.
     }
 
     fn process(
@@ -125,46 +124,57 @@ impl Plugin for Stoner {
         _context: &mut impl ProcessContext,
     ) -> ProcessStatus {
         let every = self.params.every.value() as u8;
-        let bs = self.params.buffer_size.value() as usize;
+        let bl = self.params.buflen.value() as usize;
         for channel in 0..buffer.channels() {
             //the first element of a channel is the oldest sample
-            let max_old_size = self.params.skip.value() as usize * bs;
+            let max_old_size = self.params.skip.value() as usize * bl;
             let ob = &mut self.old_buffers[channel];
-            let dividend = ob.len();
-            let offset = if dividend < max_old_size {
-                max_old_size as isize - dividend as isize
-            } else {
-                (dividend % max_old_size) as isize
-            };
+            let mut dividend = ob.len();
 
             let ch = &mut buffer.as_slice()[channel];
 
-            self.old_buffers[channel].extend_from_slice(ch);
+            ob.extend_from_slice(ch);
 
-            match offset {
-                p if p > 0 => todo!(),
-                n if n < 0 => match ch.len() as isize {
-                    o if -o < n => todo!(),
-                    u if -u > n => todo!(),
-                    e => todo!(),
-                },
-                z => todo!(),
+            while dividend < ob.len() {
+                if dividend < max_old_size {
+                    let neg_offset = max_old_size as isize - dividend as isize;
+                    match ch.len() as isize {
+                        o if -o < neg_offset => todo!(),
+                        u if -u > neg_offset => todo!(),
+                        e => todo!(),
+                    }
+                } else {
+                    let offset = dividend % max_old_size;
+                    if offset / bl > 0 {
+                        todo!() // more than a chunk of samples to deal with
+                    } else if offset > 0 {
+                        todo!()
+                    } else {
+                        todo!()
+                    }
+                }
             }
 
-            //copy samples from the old buffers into the current buffer if it's time to do that (here)
-            //then trim that many samples from the front of the old buffer
+            //copy one or many buflens from the old buffers into the current buffer if it's time to do that (here)
+            //then trim that many buflens from the front of the old buffer
 
             // remove whole numbers of buflens from the start of the old buffers
-            let need_removing = self.old_buffers[channel].len().saturating_sub(max_old_size) / bs;
+            let need_removing = ob.len().saturating_sub(max_old_size) / bl;
             if need_removing > 0 {
-                self.old_buffers[channel] = self.old_buffers[channel][need_removing..].to_vec()
+                *ob = ob[need_removing * bl..].to_vec()
             }
         }
 
-        self.modulo = (self.modulo + 1) % every;
-
         ProcessStatus::Normal
     }
+}
+
+fn get_oldest_chunk(buf: &[f32], buflen: usize) -> &[f32] {
+    &buf[..buflen]
+}
+
+fn without_first_chunk(buf: &[f32], buflen: usize) -> &[f32] {
+    &buf[buflen..]
 }
 
 impl Vst3Plugin for Stoner {
