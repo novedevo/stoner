@@ -121,16 +121,6 @@ impl Plugin for Stoner {
     }
 }
 
-impl ClapPlugin for Stoner {
-    const CLAP_ID: &'static str = "dev.nove.stoner";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Emulates Carl Stone's style on Stolen Car");
-    const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
-    const CLAP_SUPPORT_URL: Option<&'static str> = None;
-
-    // Don't forget to change these features
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
-}
-
 impl Vst3Plugin for Stoner {
     const VST3_CLASS_ID: [u8; 16] = *b"LeastMoistGainer";
 
@@ -139,5 +129,4 @@ impl Vst3Plugin for Stoner {
     const VST3_CATEGORIES: &'static str = "Fx|Dynamics";
 }
 
-nih_export_clap!(Stoner);
 nih_export_vst3!(Stoner);
