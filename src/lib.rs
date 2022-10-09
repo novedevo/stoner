@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 struct Stoner {
     params: Arc<StonerParams>,
+    old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
+    modulo: u8,
+    passthru: bool,
 }
 
 #[derive(Params)]
@@ -15,14 +18,21 @@ struct StonerParams {
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
     /// parameters are exposed to the host in the same order they were defined. In this case, this
     /// gain parameter is stored as linear gain while the values are displayed in decibels.
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "skip"]
+    pub skip: IntParam,
+    #[id = "every"]
+    pub every: IntParam,
+    #[id = "buffer size"]
+    pub buffer_size: IntParam,
 }
 
 impl Default for Stoner {
     fn default() -> Self {
         Self {
             params: Arc::new(StonerParams::default()),
+            old_buffers: vec![],
+            modulo: 0,
+            passthru: true,
         }
     }
 }
@@ -30,29 +40,26 @@ impl Default for Stoner {
 impl Default for StonerParams {
     fn default() -> Self {
         Self {
-            // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
-            // to treat these kinds of parameters as if we were dealing with decibels. Storing this
-            // as decibels is easier to work with, but requires a conversion for every sample.
-            gain: FloatParam::new(
-                "Gain",
-                util::db_to_gain(0.0),
-                FloatRange::Skewed {
-                    min: util::db_to_gain(-30.0),
-                    max: util::db_to_gain(30.0),
-                    // This makes the range appear as if it was linear when displaying the values as
-                    // decibels
-                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+            skip: IntParam::new(
+                "Buffers in the past to pull from",
+                2,
+                IntRange::Linear { min: 1, max: 10 },
+            )
+            .with_unit(" buffers"),
+            every: IntParam::new(
+                "How often to pull from buffers",
+                2,
+                IntRange::Linear { min: 2, max: 10 },
+            ),
+            buffer_size: IntParam::new(
+                "Buffer size",
+                12025,
+                IntRange::Linear {
+                    min: 64,
+                    max: 88200,
                 },
             )
-            // Because the gain parameter is stored as linear gain instead of storing the value as
-            // decibels, we need logarithmic smoothing
-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" dB")
-            // There are many predefined formatters we can use here. If the gain was stored as
-            // decibels instead of as a linear gain value, we could have also used the
-            // `.with_step_size(0.1)` function to get internal rounding.
-            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+            .with_unit(" samples"),
         }
     }
 }
@@ -87,17 +94,26 @@ impl Plugin for Stoner {
 
     fn initialize(
         &mut self,
-        _bus_config: &BusConfig,
-        _buffer_config: &BufferConfig,
+        bus_config: &BusConfig,
+        buffer_config: &BufferConfig,
         _context: &mut impl InitContext,
     ) -> bool {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        for _ in 0..bus_config.num_input_channels {
+            self.old_buffers
+                .push(Vec::with_capacity(buffer_config.max_buffer_size as usize))
+        }
         true
     }
 
     fn reset(&mut self) {
+        for buf in self.old_buffers.iter_mut() {
+            buf.clear()
+        }
+        self.modulo = 0;
+        self.passthru = true;
         // Reset buffers and envelopes here. This can be called from the audio thread and may not
         // allocate. You can remove this function if you do not need it.
     }
@@ -108,25 +124,25 @@ impl Plugin for Stoner {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext,
     ) -> ProcessStatus {
-        for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            let gain = self.params.gain.smoothed.next();
-
-            for sample in channel_samples {
-                *sample *= gain;
-            }
+        let every = self.params.every.default_plain_value() as u8;
+        for channel in 0..buffer.channels() {
+            //the first element of a channel is the oldest sample
+            let dividend = self.old_buffers.len();
+            self.old_buffers[channel].extend_from_slice(buffer.as_slice_immutable()[channel])
         }
+
+        self.modulo = (self.modulo + 1) % every;
 
         ProcessStatus::Normal
     }
 }
 
 impl Vst3Plugin for Stoner {
-    const VST3_CLASS_ID: [u8; 16] = *b"LeastMoistGainer";
+    const VST3_CLASS_ID: [u8; 16] = *b"AVerySoberStoner";
 
     // And don't forget to change these categories, see the docstring on `VST3_CATEGORIES` for more
     // information
-    const VST3_CATEGORIES: &'static str = "Fx|Dynamics";
+    const VST3_CATEGORIES: &'static str = "Fx";
 }
 
 nih_export_vst3!(Stoner);
