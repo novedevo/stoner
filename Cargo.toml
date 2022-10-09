@@ -2,7 +2,28 @@
 name = "stoner"
 version = "0.1.0"
 edition = "2021"
+authors = ["Devon Sawatsky <devon@nove.dev>"]
+description = "Emulates Carl Stone's style on Stolen Car"
+license = "GPL-3.0-or-later"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = ["xtask"]
+
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
+# Remove the `assert_process_allocs` feature to allow allocations on the audio
+# thread in debug builds.
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = [
+    "assert_process_allocs",
+] }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
