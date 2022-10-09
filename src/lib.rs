@@ -9,8 +9,7 @@ struct Stoner {
     params: Arc<StonerParams>,
     old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
     //old buffers always start at the beginning of a buflen
-    modulo: u8, //how many full buflens it's been since we played a sample from the old buffers
-    passthru: bool, //value of true indicates that the most recent sample played came directly from the input buffer
+    samples_till_next_throwback: isize,
 }
 
 #[derive(Params)]
@@ -32,8 +31,7 @@ impl Default for Stoner {
         Self {
             params: Arc::new(StonerParams::default()),
             old_buffers: vec![],
-            modulo: 0,
-            passthru: true,
+            samples_till_next_throwback: 0,
         }
     }
 }
@@ -113,8 +111,9 @@ impl Plugin for Stoner {
         for buf in self.old_buffers.iter_mut() {
             buf.clear()
         }
-        self.modulo = 0;
-        self.passthru = true;
+
+        self.samples_till_next_throwback =
+            self.params.buflen.value() as isize * self.params.skip.value() as isize;
     }
 
     fn process(
@@ -127,42 +126,64 @@ impl Plugin for Stoner {
         let bl = self.params.buflen.value() as usize;
         for channel in 0..buffer.channels() {
             //the first element of a channel is the oldest sample
-            let max_old_size = self.params.skip.value() as usize * bl;
+            // let max_old_size = self.params.skip.value() as usize * bl;
             let ob = &mut self.old_buffers[channel];
-            let mut dividend = ob.len();
+            // let mut dividend = ob.len();
 
             let ch = &mut buffer.as_slice()[channel];
+            let vech = ch.to_vec();
 
-            ob.extend_from_slice(ch);
+            let mut processed = 0;
+            while processed < ch.len() {
+                if self.samples_till_next_throwback < 0 {
+                    let samp = (-self.samples_till_next_throwback as usize)
+                        .min(ch.len() - processed)
+                        .min(ob.len());
 
-            while dividend < ob.len() {
-                if dividend < max_old_size {
-                    let neg_offset = max_old_size as isize - dividend as isize;
-                    match ch.len() as isize {
-                        o if -o < neg_offset => todo!(),
-                        u if -u > neg_offset => todo!(),
-                        e => todo!(),
-                    }
+                    ch[processed..samp + processed].copy_from_slice(&ob[..samp]);
+
+                    self.samples_till_next_throwback += samp as isize;
+                    processed += samp;
+                    *ob = ob[samp..].to_vec()
                 } else {
-                    let offset = dividend % max_old_size;
-                    if offset / bl > 0 {
-                        todo!() // more than a chunk of samples to deal with
-                    } else if offset > 0 {
-                        todo!()
-                    } else {
-                        todo!()
-                    }
+                    let samp =
+                        (self.samples_till_next_throwback as usize).min(ch.len() - processed);
+
+                    ob.extend_from_slice(&ch[processed..samp + processed]);
+                    self.samples_till_next_throwback -= samp as isize;
                 }
             }
+
+            // ob.extend_from_slice(ch);
+
+            // while dividend < ob.len() {
+            //     if dividend < max_old_size {
+            //         let neg_offset = max_old_size as isize - dividend as isize;
+            //         match ch.len() as isize {
+            //             o if -o < neg_offset => todo!(),
+            //             u if -u > neg_offset => todo!(),
+            //             e => todo!(),
+            //         }
+            //     } else {
+            //         let offset = dividend % max_old_size;
+            //         if offset / bl > 0 {
+            //             todo!() // more than a chunk of samples to deal with
+            //         } else if offset > 0 {
+            //             todo!()
+            //         } else {
+            //             todo!()
+            //         }
+            //     }
+            // }
 
             //copy one or many buflens from the old buffers into the current buffer if it's time to do that (here)
             //then trim that many buflens from the front of the old buffer
 
             // remove whole numbers of buflens from the start of the old buffers
-            let need_removing = ob.len().saturating_sub(max_old_size) / bl;
-            if need_removing > 0 {
-                *ob = ob[need_removing * bl..].to_vec()
-            }
+            // let need_removing = ob.len().saturating_sub(max_old_size) / bl;
+            // if need_removing > 0 {
+            //     *ob = ob[need_removing * bl..].to_vec()
+            // }
         }
 
         ProcessStatus::Normal
