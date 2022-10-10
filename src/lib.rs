@@ -9,7 +9,7 @@ struct Stoner {
     params: Arc<StonerParams>,
     old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
     //old buffers always start at the beginning of a buflen
-    samples_till_next_throwback: isize,
+    modulo: u8,
 }
 
 #[derive(Params)]
@@ -22,8 +22,6 @@ struct StonerParams {
     pub skip: IntParam,
     #[id = "every"]
     pub every: IntParam,
-    #[id = "buflen"]
-    pub buflen: IntParam,
 }
 
 impl Default for Stoner {
@@ -31,7 +29,7 @@ impl Default for Stoner {
         Self {
             params: Arc::new(StonerParams::default()),
             old_buffers: vec![],
-            samples_till_next_throwback: 0,
+            modulo: 0,
         }
     }
 }
@@ -50,15 +48,6 @@ impl Default for StonerParams {
                 2,
                 IntRange::Linear { min: 2, max: 10 },
             ),
-            buflen: IntParam::new(
-                "Buffer size",
-                12025,
-                IntRange::Linear {
-                    min: 64,
-                    max: 88200,
-                },
-            )
-            .with_unit(" samples"),
         }
     }
 }
@@ -111,9 +100,7 @@ impl Plugin for Stoner {
         for buf in self.old_buffers.iter_mut() {
             buf.clear()
         }
-
-        self.samples_till_next_throwback =
-            self.params.buflen.value() as isize * self.params.skip.value() as isize;
+        self.modulo = 0
     }
 
     fn process(
@@ -123,69 +110,25 @@ impl Plugin for Stoner {
         _context: &mut impl ProcessContext,
     ) -> ProcessStatus {
         let every = self.params.every.value() as u8;
-        let bl = self.params.buflen.value() as usize;
+        let skip = self.params.skip.value() as u8;
         for channel in 0..buffer.channels() {
             //the first element of a channel is the oldest sample
-            // let max_old_size = self.params.skip.value() as usize * bl;
             let ob = &mut self.old_buffers[channel];
             // let mut dividend = ob.len();
 
             let ch = &mut buffer.as_slice()[channel];
-            let vech = ch.to_vec();
+            let max_old_size = skip as usize * ch.len();
 
-            let mut processed = 0;
-            while processed < ch.len() {
-                if self.samples_till_next_throwback < 0 {
-                    let samp = (-self.samples_till_next_throwback as usize)
-                        .min(ch.len() - processed)
-                        .min(ob.len());
+            ob.extend_from_slice(ch);
 
-                    ch[processed..samp + processed].copy_from_slice(&ob[..samp]);
-
-                    self.samples_till_next_throwback += samp as isize;
-                    processed += samp;
-                    *ob = ob[samp..].to_vec()
-                } else {
-                    let samp =
-                        (self.samples_till_next_throwback as usize).min(ch.len() - processed);
-
-                    ob.extend_from_slice(&ch[processed..samp + processed]);
-                    self.samples_till_next_throwback -= samp as isize;
-                }
+            if self.modulo == 0 && ob.len() >= max_old_size {
+                ch.copy_from_slice(&ob[..ch.len()]);
+                *ob = ob[ob.len() - max_old_size..].to_vec();
             }
-
-            // ob.extend_from_slice(ch);
-
-            // while dividend < ob.len() {
-            //     if dividend < max_old_size {
-            //         let neg_offset = max_old_size as isize - dividend as isize;
-            //         match ch.len() as isize {
-            //             o if -o < neg_offset => todo!(),
-            //             u if -u > neg_offset => todo!(),
-            //             e => todo!(),
-            //         }
-            //     } else {
-            //         let offset = dividend % max_old_size;
-            //         if offset / bl > 0 {
-            //             todo!() // more than a chunk of samples to deal with
-            //         } else if offset > 0 {
-            //             todo!()
-            //         } else {
-            //             todo!()
-            //         }
-            //     }
-            // }
-
-            //copy one or many buflens from the old buffers into the current buffer if it's time to do that (here)
-            //then trim that many buflens from the front of the old buffer
-
-            // remove whole numbers of buflens from the start of the old buffers
-            // let need_removing = ob.len().saturating_sub(max_old_size) / bl;
-            // if need_removing > 0 {
-            //     *ob = ob[need_removing * bl..].to_vec()
-            // }
         }
 
+        self.modulo += 1;
+        self.modulo %= every;
         ProcessStatus::Normal
     }
 }
