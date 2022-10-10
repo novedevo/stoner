@@ -10,6 +10,7 @@ struct Stoner {
     old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
     //old buffers always start at the beginning of a buflen
     modulo: u8,
+    smaller_modulo: u8,
 }
 
 #[derive(Params)]
@@ -22,6 +23,8 @@ struct StonerParams {
     pub skip: IntParam,
     #[id = "every"]
     pub every: IntParam,
+    #[id = "multiple"]
+    pub multiple: IntParam,
 }
 
 impl Default for Stoner {
@@ -30,6 +33,7 @@ impl Default for Stoner {
             params: Arc::new(StonerParams::default()),
             old_buffers: vec![],
             modulo: 0,
+            smaller_modulo: 0,
         }
     }
 }
@@ -47,6 +51,11 @@ impl Default for StonerParams {
                 "How often to pull from buffers",
                 2,
                 IntRange::Linear { min: 2, max: 10 },
+            ),
+            multiple: IntParam::new(
+                "How many buffers at a time to play",
+                10,
+                IntRange::Linear { min: 1, max: 50 },
             ),
         }
     }
@@ -100,7 +109,8 @@ impl Plugin for Stoner {
         for buf in self.old_buffers.iter_mut() {
             buf.clear()
         }
-        self.modulo = 0
+        self.modulo = 0;
+        self.smaller_modulo = 0;
     }
 
     fn process(
@@ -111,15 +121,18 @@ impl Plugin for Stoner {
     ) -> ProcessStatus {
         let every = self.params.every.value() as u8;
         let skip = self.params.skip.value() as u8;
+        let mul = self.params.multiple.value() as u8;
         for channel in 0..buffer.channels() {
             //the first element of a channel is the oldest sample
             let ob = &mut self.old_buffers[channel];
             // let mut dividend = ob.len();
 
             let ch = &mut buffer.as_slice()[channel];
-            let max_old_size = skip as usize * ch.len();
+            let max_old_size = skip as usize * ch.len() * mul as usize;
 
             ob.extend_from_slice(ch);
+
+            //safe till here
 
             if self.modulo == 0 && ob.len() >= max_old_size {
                 ch.copy_from_slice(&ob[..ch.len()]);
@@ -127,8 +140,12 @@ impl Plugin for Stoner {
             }
         }
 
-        self.modulo += 1;
-        self.modulo %= every;
+        self.smaller_modulo += 1;
+        self.smaller_modulo %= mul;
+        if self.smaller_modulo == 0 {
+            self.modulo += 1;
+            self.modulo %= every;
+        }
         ProcessStatus::Normal
     }
 }
