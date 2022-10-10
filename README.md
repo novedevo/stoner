@@ -1,6 +1,6 @@
 # stoner
 
-Music production plugin that emulates Carl Stone's work on Stolen Car
+Music production plugin that emulates Carl Stone's work on Stolen Car. Emulate is used very loosely here. You could consider this outsider art of a granular synth.
 
 ## Building
 
