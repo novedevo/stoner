@@ -1,16 +1,15 @@
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-// This is a shortened version of the gain example with most comments removed, check out
-// https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
-// started
+use rand::{thread_rng, Rng};
 
 struct Stoner {
     params: Arc<StonerParams>,
-    old_buffers: Vec<Vec<f32>>, //buffers are kept in contiguous order, the oldest sample at the beginning and the latest at the end
+    old_buffers: Vec<Vec<f32>>, //buffers are kept contiguously, the oldest sample at the beginning and the latest at the end
     //old buffers always start at the beginning of a buflen
     modulo: u8,
     smaller_modulo: u8,
+    dev_urandom: u8,
 }
 
 #[derive(Params)]
@@ -25,6 +24,8 @@ struct StonerParams {
     pub every: IntParam,
     #[id = "multiple"]
     pub multiple: IntParam,
+    #[id = "random"]
+    pub random: BoolParam,
 }
 
 impl Default for Stoner {
@@ -34,6 +35,7 @@ impl Default for Stoner {
             old_buffers: vec![],
             modulo: 0,
             smaller_modulo: 0,
+            dev_urandom: 0,
         }
     }
 }
@@ -42,7 +44,7 @@ impl Default for StonerParams {
     fn default() -> Self {
         Self {
             skip: IntParam::new(
-                "Buffers in the past to pull from",
+                "(max) Buffers in the past to pull from",
                 2,
                 IntRange::Linear { min: 1, max: 10 },
             )
@@ -50,13 +52,15 @@ impl Default for StonerParams {
             every: IntParam::new(
                 "How often to pull from buffers",
                 2,
-                IntRange::Linear { min: 2, max: 10 },
+                IntRange::Linear { min: 1, max: 10 },
             ),
             multiple: IntParam::new(
-                "How many buffers at a time to play",
+                "How many frames at a time to play",
                 10,
                 IntRange::Linear { min: 1, max: 50 },
-            ),
+            )
+            .with_unit(" frames"),
+            random: BoolParam::new("Whether to randomize which buffer to pull from", true),
         }
     }
 }
@@ -115,47 +119,45 @@ impl Plugin for Stoner {
 
     fn process(
         &mut self,
-        buffer: &mut Buffer,
+        frame: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext,
     ) -> ProcessStatus {
-        let every = self.params.every.value() as u8;
-        let skip = self.params.skip.value() as u8;
-        let mul = self.params.multiple.value() as u8;
-        for channel in 0..buffer.channels() {
+        let random = self.params.random.value();
+        let every = self.params.every.value();
+        let skip = self.params.skip.value();
+        let mul = self.params.multiple.value();
+        for channel in 0..frame.channels() {
             //the first element of a channel is the oldest sample
             let ob = &mut self.old_buffers[channel];
             // let mut dividend = ob.len();
 
-            let ch = &mut buffer.as_slice()[channel];
+            let ch = &mut frame.as_slice()[channel];
             let max_old_size = skip as usize * ch.len() * mul as usize;
 
             ob.extend_from_slice(ch);
 
-            //safe till here
+            let start = if random {
+                self.dev_urandom as usize * ch.len()
+            } else {
+                0
+            };
 
             if self.modulo == 0 && ob.len() >= max_old_size {
-                ch.copy_from_slice(&ob[..ch.len()]);
+                ch.copy_from_slice(&ob[start..ch.len() + start]);
                 *ob = ob[ob.len() - max_old_size..].to_vec();
             }
         }
 
-        self.smaller_modulo += 1;
-        self.smaller_modulo %= mul;
         if self.smaller_modulo == 0 {
+            self.dev_urandom = thread_rng().gen_range(0..skip as u8);
             self.modulo += 1;
-            self.modulo %= every;
+            self.modulo %= every as u8;
         }
+        self.smaller_modulo += 1;
+        self.smaller_modulo %= mul as u8;
         ProcessStatus::Normal
     }
-}
-
-fn get_oldest_chunk(buf: &[f32], buflen: usize) -> &[f32] {
-    &buf[..buflen]
-}
-
-fn without_first_chunk(buf: &[f32], buflen: usize) -> &[f32] {
-    &buf[buflen..]
 }
 
 impl Vst3Plugin for Stoner {

@@ -1,5 +1,5 @@
 [package]
-name = "stoner"
+name = "Stoner"
 version = "0.1.0"
 edition = "2021"
 authors = ["Devon Sawatsky <devon@nove.dev>"]
@@ -16,6 +16,7 @@ crate-type = ["cdylib"]
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+rand = "0.8"
 
 [profile.release]
 lto = "thin"
