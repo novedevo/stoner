@@ -1,4 +1,4 @@
-# stoner
+# Stoner
 
 Music production plugin that emulates Carl Stone's work on Stolen Car. Emulate is used very loosely here. You could consider this outsider art of a granular synth.
 
@@ -7,5 +7,5 @@ Music production plugin that emulates Carl Stone's work on Stolen Car. Emulate i
 After installing [Rust](https://rustup.rs/), you can compile Stoner as follows:
 
 ```shell
-cargo xtask bundle stoner --release
+./make_vst.sh
 ```
