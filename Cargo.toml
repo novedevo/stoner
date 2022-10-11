@@ -6,9 +6,6 @@ authors = ["Devon Sawatsky <devon@nove.dev>"]
 description = "Emulates Carl Stone's style on Stolen Car"
 license = "GPL-3.0-or-later"
 
-[workspace]
-members = ["xtask"]
-
 [lib]
 crate-type = ["cdylib"]
 
