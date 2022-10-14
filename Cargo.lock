@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "nih_plug"
 version = "0.0.0"
-source = "git+https://github.com/robbert-vdh/nih-plug.git#d57003a0e96f34ce5439033df3adbff928f46674"
+source = "git+https://github.com/robbert-vdh/nih-plug.git#3f007c8a683417fc633cf5447c92b6cef9432809"
 dependencies = [
  "anyhow",
  "atomic_float",
@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "nih_plug_derive"
 version = "0.1.0"
-source = "git+https://github.com/robbert-vdh/nih-plug.git#d57003a0e96f34ce5439033df3adbff928f46674"
+source = "git+https://github.com/robbert-vdh/nih-plug.git#3f007c8a683417fc633cf5447c92b6cef9432809"
 dependencies = [
  "quote",
  "syn",
